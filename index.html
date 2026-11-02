@@ -102,6 +102,7 @@ th{font-size:13px;color:var(--muted);font-weight:500}
 .wk .ls{font-weight:500;font-size:14px}
 .wk .lp{font-size:12.5px;color:var(--blue);margin-top:2px}
 .wk .lm{font-size:12px;color:var(--muted);margin-top:1px;white-space:pre-wrap}
+.jh small{font-weight:400;font-size:11px}
 .tt-ev{font-size:11px;font-weight:400;color:var(--blue);white-space:normal}
 tr.sel-row td{background:var(--accent-soft)}
 /* modal */
@@ -978,22 +979,26 @@ Object.assign(App, {
   }
 });
 
-/* ============ 진학: 광주 고입 내신 산출 (300점) ============
-   근거: 광주광역시 고등학교 입학전형 기본계획 내신성적 산출지침 (교육감 선발 후기 평준화고)
-   교과 240 = 일반교과 180 (1-2 18, 2-1 36, 2-2 36, 3-1 45, 3-2 45) + 예체능 60
-   비교과 60 = 출결 15 + 봉사 15 + 창의적체험활동 15 + 행동발달 15 (학년별 5점)            */
+/* ============ 진학: 광주 고입 내신 산출 ============
+   근거: 2027학년도 광주광역시 고등학교 입학전형 기본계획 / 학교별 입학전형요강(내신성적 산출지침)
+   - general : 교육감 선발 후기 평준화 일반고 (300점)
+   - auto/sw : 광주자동화설비마이스터고 · 광주소프트웨어마이스터고 1차 전형 (300점, 두 학교 지침 동일)
+   - arts    : 광주예술고 내신 (100점, 졸업예정자)                                              */
 const JH_SEMS = [{k:'1-2',p:18},{k:'2-1',p:36},{k:'2-2',p:36},{k:'3-1',p:45},{k:'3-2',p:45}];
+const ART_SEMS = ['1-1','1-2','2-1','2-2','3-1','3-2'];
 const JH_SUBS = [['list','성적 현황'],['paste','일괄 붙여넣기'],['config','산출 기준']];
 const YRS = ['1','2','3'];
 ui.jhSub = 'list'; ui.jhSort = 'no';
 const jhD = sid => {
   const d = S.jinhak.data[sid] = S.jinhak.data[sid] || {};
-  d.grades = d.grades || {}; d.art = d.art || '';
+  d.grades = d.grades || {}; d.art = d.art || ''; d.artS = d.artS || {};
   ['att','vol','act','beh'].forEach(k => { if(typeof d[k] !== 'object' || d[k] === null) d[k] = {}; });
   return d;
 };
+const jhGet = sid => S.jinhak.data[sid] ? jhD(sid) : {grades:{}, art:'', artS:{}, att:{}, vol:{}, act:{}, beh:{}};
 const rnd = (x, n) => { const f = Math.pow(10, n); return Math.round(x * f + 1e-9) / f; };
 const r3 = x => rnd(x, 3).toFixed(3);
+const fmtN = x => Number.isInteger(x) ? String(x) : String(rnd(x, 3));
 const CONV = {A:5, B:4, C:3, D:2, E:1};
 // 평어(수우미양가 / 우수·보통·미흡)도 성취도로 바꿔 읽음
 function letters(s, art){
@@ -1004,148 +1009,235 @@ function letters(s, art){
   }
   return t.match(art ? /[ABC]/g : /[A-E]/g) || [];
 }
-// 미인정 결석일수(지각·조퇴·결과 3회 = 1일) → 학년별 출석 점수
-const attPts = n => n <= 0 ? 5 : n <= 2 ? 4 : n <= 4 ? 3 : n <= 6 ? 2 : n <= 8 ? 1 : 0;
-// 연간 봉사시간 → 학년별 봉사 점수
-const volPts = h => h >= 7 ? 5 : h >= 6 ? 4.5 : h >= 5 ? 4 : h >= 4 ? 3.5 : 3;
-const bonus = v => Math.max(0, Math.min(0.5, +v || 0));
-
-function jhCalc(sid){
-  const d = S.jinhak.data[sid] ? jhD(sid) : {grades:{}, art:'', att:{}, vol:{}, act:{}, beh:{}};
-  const ratio = {}; const have = [];
-  JH_SEMS.forEach(s => { const a = letters(d.grades[s.k]); if(a.length){ ratio[s.k] = rnd(a.reduce((t,x)=>t+CONV[x],0) / (a.length*5), 5); have.push(ratio[s.k]); } });
-  const fb = have.length ? rnd(have.reduce((a,b)=>a+b,0)/have.length, 5) : null;
-  const per = {}, estimated = [];
-  let gen = 0;
-  JH_SEMS.forEach(s => {
-    let r = ratio[s.k];
-    if(r == null && S.jinhak.config.estimateMissing && fb != null){ r = fb; estimated.push(s.k); }
-    per[s.k] = r == null ? null : s.p * r;
-    gen += per[s.k] || 0;
-  });
-  gen = rnd(gen, 3);
-  const ar = letters(d.art, true);
-  const artRatio = ar.length ? rnd(ar.reduce((t,x)=>t+CONV[x],0) / (ar.length*5), 3) : null;
-  const art = artRatio == null ? null : rnd(60 * artRatio, 3);
-  const attY = {}, volY = {};
-  let att = 0, vol = 0, act = 0, beh = 0;
-  YRS.forEach(y => {
-    const a = d.att[y] || {};
-    const days = (+a.abs || 0) + Math.floor((+a.late || 0) / 3);
-    attY[y] = attPts(days); att += attY[y];
-    volY[y] = volPts(+d.vol[y] || 0); vol += volY[y];
-    act += 4.5 + bonus(d.act[y]);
-    beh += 4.5 + bonus(d.beh[y]);
-  });
-  const subj = gen + (art || 0);
-  return {per, gen, art, subj, att, vol, act, beh, attY, volY,
-    total: rnd(subj + att + vol + act + beh, 3), estimated, has: have.length > 0, artMissing: art == null};
+// 예체능 성취도: 학기별 입력 + (예전 방식) 학기 구분 없는 입력
+function artLetters(d, sems){
+  let a = []; sems.forEach(k => a = a.concat(letters(d.artS[k], true)));
+  const legacy = letters(d.art, true);
+  return {list: a.concat(legacy), legacy: legacy.length > 0};
 }
-function jhRanked(){
-  const rows = sortedStudents().map(s => ({s, r:jhCalc(s.id)}));
+// 학년별 미인정 결석·지각등 합계 / 봉사시간
+const attTotal = d => { let a = 0, l = 0; YRS.forEach(y => { a += +(d.att[y]||{}).abs || 0; l += +(d.att[y]||{}).late || 0; }); return {abs:a, late:l, days: a + Math.floor(l / 3)}; };
+const bonus = v => Math.max(0, Math.min(0.5, +v || 0));
+// 학기별 일반교과 비율 (환산점수 합 ÷ 과목수×5), 없는 학기는 입력된 학기 평균으로 추정(옵션)
+function semRatios(d, keys){
+  const ratio = {}, have = [];
+  keys.forEach(k => { const a = letters(d.grades[k]); if(a.length){ ratio[k] = rnd(a.reduce((t,x)=>t+CONV[x],0) / (a.length*5), 5); have.push(ratio[k]); } });
+  const fb = have.length ? rnd(have.reduce((a,b)=>a+b,0)/have.length, 5) : null;
+  const est = [];
+  if(S.jinhak.config.estimateMissing && fb != null) keys.forEach(k => { if(ratio[k] == null){ ratio[k] = fb; est.push(k); } });
+  return {ratio, est, has: have.length > 0};
+}
+
+/* ---------- 학교별 산출 ---------- */
+const CRITS = {
+  general: {name:'후기 일반고 (교육감 선발)', short:'일반고', max:300,
+    cols:[...JH_SEMS.map(s=>({k:s.k, h:`${s.k}<br><small>${s.p}</small>`})), {k:'art',h:'예체능<br><small>60</small>'}, {k:'subj',h:'교과<br><small>240</small>',b:1},
+      {k:'att',h:'출결<br><small>15</small>'},{k:'vol',h:'봉사<br><small>15</small>'},{k:'act',h:'창체<br><small>15</small>'},{k:'beh',h:'행동<br><small>15</small>'}],
+    calc(d){
+      const {ratio, est, has} = semRatios(d, JH_SEMS.map(s=>s.k));
+      const v = {}; let gen = 0;
+      JH_SEMS.forEach(s => { v[s.k] = ratio[s.k] == null ? null : s.p * ratio[s.k]; gen += v[s.k] || 0; });
+      gen = rnd(gen, 3);
+      const al = artLetters(d, ART_SEMS);
+      v.art = al.list.length ? rnd(60 * rnd(al.list.reduce((t,x)=>t+CONV[x],0)/(al.list.length*5), 3), 3) : null;
+      v.subj = gen + (v.art || 0);
+      v.att = 0; v.vol = 0; v.act = 0; v.beh = 0;
+      YRS.forEach(y => {
+        const a = d.att[y] || {}, n = (+a.abs||0) + Math.floor((+a.late||0)/3);
+        v.att += n <= 0 ? 5 : n <= 2 ? 4 : n <= 4 ? 3 : n <= 6 ? 2 : n <= 8 ? 1 : 0;
+        const h = +d.vol[y] || 0; v.vol += h >= 7 ? 5 : h >= 6 ? 4.5 : h >= 5 ? 4 : h >= 4 ? 3.5 : 3;
+        v.act += 4.5 + bonus(d.act[y]); v.beh += 4.5 + bonus(d.beh[y]);
+      });
+      return {v, total: rnd(v.subj + v.att + v.vol + v.act + v.beh, 3), has, est, artMissing: v.art == null};
+    }},
+  auto: {name:'광주자동화설비마이스터고 (1차 전형)', short:'자동화설비마이스터', max:300, meister:true},
+  sw:   {name:'광주소프트웨어마이스터고 (1차 전형)', short:'SW마이스터', max:300, meister:true},
+  arts: {name:'광주예술고 (내신 성적)', short:'예술고', max:100,
+    cols:[{k:'avg',h:'환산 평균<br><small>1-2~3-1</small>'},{k:'gen',h:'일반교과<br><small>80</small>'},{k:'artAvg',h:'예체능<br><small>10</small>'},
+      {k:'att',h:'출결<br><small>5</small>'},{k:'vol',h:'봉사<br><small>5</small>'}],
+    calc(d){
+      const keys = ['1-2','2-1','2-2','3-1'];
+      let pts = 0, n = 0; keys.forEach(k => letters(d.grades[k]).forEach(x => { pts += CONV[x]; n++; }));
+      const v = {};
+      v.avg = n ? rnd(pts / n, 3) : null;
+      const BAND = [[4.951,80],[4.901,79],[4.801,78],[4.701,77],[4.601,76],[4.501,74],[4.401,72],[4.301,70],[4.201,68],[4.101,66],[4.001,64],[3.751,62],[3.501,60],[3.251,58],[3.001,56],[2.751,54],[2.501,52],[2.251,50],[2.001,47],[0,44]];
+      v.gen = v.avg == null ? null : BAND.find(([t]) => v.avg >= t - 1e-9)[1];
+      const al = artLetters(d, keys);
+      const AP = {A:10, B:9, C:8};
+      v.artAvg = al.list.length ? rnd(al.list.reduce((t,x)=>t+AP[x],0) / al.list.length, 3) : null;
+      const t = attTotal(d);
+      v.att = Math.max(0, 5 - 0.5 * t.days);
+      const h = YRS.reduce((s,y) => s + (+d.vol[y] || 0), 0);
+      v.vol = h >= 18 ? 5 : h >= 17 ? 4.5 : h >= 16 ? 4 : h >= 15 ? 3.5 : h >= 14 ? 3 : 2.5;
+      return {v, total: rnd((v.gen||0) + (v.artAvg||0) + v.att + v.vol, 3), has: n > 0, est: [], artMissing: v.artAvg == null};
+    }}
+};
+const M_SEMS = [{k:'1-2',p:18},{k:'2-1',p:45},{k:'2-2',p:45},{k:'3-1',p:72}];
+const meisterCrit = {
+  cols:[...M_SEMS.map(s=>({k:s.k, h:`${s.k}<br><small>${s.p}</small>`})), {k:'gen',h:'일반교과<br><small>180</small>',b:1}, {k:'art',h:'예체능<br><small>60</small>'},
+    {k:'att',h:'출석<br><small>30</small>'},{k:'vol',h:'봉사<br><small>30</small>'}],
+  calc(d){
+    const {ratio, est, has} = semRatios(d, M_SEMS.map(s=>s.k));
+    const v = {}; let gen = 0;
+    M_SEMS.forEach(s => { v[s.k] = ratio[s.k] == null ? null : s.p * ratio[s.k]; gen += v[s.k] || 0; });
+    v.gen = rnd(gen, 3);
+    const al = artLetters(d, ['1-1','1-2','2-1','2-2','3-1']);
+    v.art = al.list.length ? rnd(60 * rnd(al.list.reduce((t,x)=>t+CONV[x],0)/(al.list.length*5), 3), 3) : null;
+    v.att = Math.max(0, 30 - 3 * attTotal(d).days);
+    v.vol = YRS.reduce((s,y) => { const h = +d.vol[y] || 0; return s + (h >= 7 ? 10 : h >= 6 ? 8 : h >= 5 ? 6 : h >= 4 ? 4 : 2); }, 0);
+    return {v, total: rnd(v.gen + (v.art||0) + v.att + v.vol, 3), has, est, artMissing: v.art == null};
+  }
+};
+Object.assign(CRITS.auto, meisterCrit); Object.assign(CRITS.sw, meisterCrit);
+const crit = () => CRITS[S.jinhak.config.crit] || CRITS.general;
+const jhCalc = (sid, c) => (c || crit()).calc(jhGet(sid));
+function jhRanked(c){
+  c = c || crit();
+  const rows = sortedStudents().map(s => ({s, r:jhCalc(s.id, c)}));
   const g = rows.filter(x=>x.r.has);
   g.forEach(x => { x.rank = g.filter(y=>y.r.total > x.r.total + 1e-9).length + 1; x.pct = x.rank / g.length * 100; });
   return {rows, n:g.length};
 }
+const fmtV = v => v == null ? '·' : (typeof v === 'number' && !Number.isInteger(v) ? r3(v) : String(v));
 
-V.jinhak = () => `<div class="sub">${JH_SUBS.map(([k,n])=>`<button class="${ui.jhSub===k?'on':''}" onclick="App.jhSub('${k}')">${n}</button>`).join('')}</div>` + V['jh_'+ui.jhSub]();
+V.jinhak = () => {
+  const sel = `<div class="row noprint" style="margin-bottom:12px"><b>산출 기준</b>
+    <select onchange="App.jhCrit(this.value)">${Object.entries(CRITS).map(([k,c])=>`<option value="${k}" ${S.jinhak.config.crit===k||(!S.jinhak.config.crit&&k==='general')?'selected':''}>${c.name}</option>`).join('')}</select>
+    <button class="btn sm" onclick="App.jhCompare()">학교별 비교</button></div>`;
+  return `<div class="sub">${JH_SUBS.map(([k,n])=>`<button class="${ui.jhSub===k?'on':''}" onclick="App.jhSub('${k}')">${n}</button>`).join('')}</div>` + (ui.jhSub==='paste' ? '' : sel) + V['jh_'+ui.jhSub]();
+};
 
 V.jh_list = () => {
-  const {rows, n} = jhRanked();
+  const c = crit(), {rows, n} = jhRanked(c);
   let list = rows;
   if(ui.jhSort === 'total') list = [...rows].sort((a,b)=>(b.r.has-a.r.has) || b.r.total-a.r.total);
   const body = list.map(({s,r,rank,pct}) => `<tr>
     <td>${esc(s.no)}</td>
     <td><a href="#" onclick="App.jhEdit('${s.id}');return false"><b>${esc(s.name)}</b></a></td>
-    ${JH_SEMS.map(sm=>{ const v=r.per[sm.k], est=r.estimated.includes(sm.k); return `<td class="${est?'muted':''}" title="${est?'미입력 → 입력된 학기 평균으로 추정':''}">${v==null?'·':r3(v)+(est?'*':'')}</td>`; }).join('')}
-    <td>${r.art==null?'<span class="muted">·</span>':r3(r.art)}</td>
-    <td><b>${r.has?r3(r.subj):'·'}</b></td>
-    <td>${r.att}</td><td>${r.vol}</td><td>${r.act}</td><td>${r.beh}</td>
+    ${c.cols.map(col => { const est = r.est.includes(col.k); const v = r.v[col.k]; return `<td class="${est?'muted':''}">${col.b?'<b>':''}${v!=null&&/^\d-\d$/.test(col.k)?r3(v):(r.has||!JH_SEMS.some(x=>x.k===col.k)?fmtV(v):'·')}${est?'*':''}${col.b?'</b>':''}</td>`; }).join('')}
     <td><b style="color:var(--accent)">${r.has?r3(r.total):'·'}</b></td>
     <td>${r.has?`${rank}/${n} <span class="muted" style="font-size:12px">(${pct.toFixed(1)}%)</span>`:'·'}</td>
     <td class="noprint"><button class="btn sm" onclick="App.jhEdit('${s.id}')">입력</button></td>
   </tr>`).join('');
+  const note = {
+    general:'교과 240(일반 180 + 예체능 60) · 출결 15 · 봉사 15 · 창체 15 · 행동발달 15.',
+    auto:'교과 240(일반 180: 1-2 18 · 2-1 45 · 2-2 45 · 3-1 72 / 예체능 60) · 출석 30 · 봉사 30. 1차 전형(모집정원 1.3배수) 점수예요. 2차는 인·적성 소양검사 120 + 심층면접 80.',
+    sw:'교과 240(일반 180: 1-2 18 · 2-1 45 · 2-2 45 · 3-1 72 / 예체능 60) · 출석 30 · 봉사 30. 1차 전형(모집정원 1.3배수) 점수이며, 최종은 1차 + 역량검사 + 심층면접 합산이에요.',
+    arts:'일반교과 80(1-2~3-1 전 과목 환산평균 → 급간 점수) · 예체능 10 · 출결 5 · 봉사 5 = 내신 100. 학과별로 실기와 합산해요(내신 반영: 음악·만화 40%, 국악·무용 50%, 한국화·미술(회화·조소·디자인) 60%).'
+  }[S.jinhak.config.crit || 'general'];
   return `<div class="card">
-    <h3>🎓 고입 내신 (300점 만점)
+    <h3>🎓 ${c.name} <span class="muted" style="font-weight:400">${c.max}점 만점</span>
       <span class="sp row noprint">
         <select onchange="App.jhSort(this.value)"><option value="no" ${ui.jhSort==='no'?'selected':''}>번호순</option><option value="total" ${ui.jhSort==='total'?'selected':''}>총점순</option></select>
         <button class="btn sm" onclick="App.jhCsv()">엑셀(CSV)</button><button class="btn sm" onclick="window.print()">인쇄</button>
       </span></h3>
-    <p class="muted" style="margin:0 0 8px;font-size:13px">교과 240(일반 180 + 예체능 60) · 출결 15 · 봉사 15 · 창체 15 · 행동발달 15. 이름을 누르면 입력해요. *는 아직 없는 학기를 입력된 학기 평균으로 추정한 값(가내신)이에요. 석차는 우리 반 안의 순위예요.</p>
-    ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>번호</th><th>이름</th>${JH_SEMS.map(s=>`<th>${s.k}<br><span style="font-size:11px">${s.p}점</span></th>`).join('')}<th>예체능<br><span style="font-size:11px">60점</span></th><th>교과<br><span style="font-size:11px">240</span></th><th>출결</th><th>봉사</th><th>창체</th><th>행동</th><th>총점</th><th>반 석차</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
+    <p class="muted" style="margin:0 0 8px;font-size:13px">${note} 이름을 누르면 입력해요. *는 아직 없는 학기를 입력된 학기 평균으로 추정한 값이에요. 석차는 우리 반 안의 순위예요.</p>
+    ${rows.length ? `<div class="tbl-wrap"><table class="jh"><thead><tr><th>번호</th><th>이름</th>${c.cols.map(col=>`<th>${col.h}</th>`).join('')}<th>총점<br><small>${c.max}</small></th><th>반 석차</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`
       : '<div class="empty">학급 → 명렬표에 학생을 먼저 등록해 주세요.</div>'}
   </div>`;
 };
 
 const JH_PASTE = {
-  art:   {label:'예체능(체육·음악·미술) 3년 전체', help:'번호 · 이름 · 체육·음악·미술 성취도(A/B/C) 3년치 전부', ph:'1\t김민지\tA\tA\tB\tA\tA\tA'},
   att:   {label:'출결 (학년별 미인정)', help:'번호 · 이름 · 1학년 미인정 결석 · 1학년 미인정 지각·조퇴·결과(합) · 2학년 결석 · 2학년 지각등 · 3학년 결석 · 3학년 지각등', ph:'1\t김민지\t0\t0\t0\t1\t0\t2'},
   vol:   {label:'봉사활동 (학년별 시간)', help:'번호 · 이름 · 1학년 봉사시간 · 2학년 · 3학년', ph:'1\t김민지\t10\t7\t6'},
-  bonus: {label:'창체·행동발달 가산점 (0~0.5)', help:'번호 · 이름 · 창체 가산 1·2·3학년 · 행동발달 가산 1·2·3학년 (학업성적관리위원회 결정값, 없으면 0)', ph:'1\t김민지\t0.5\t0\t0.5\t0\t0\t0.5'}
+  bonus: {label:'창체·행동발달 가산점 (일반고, 0~0.5)', help:'번호 · 이름 · 창체 가산 1·2·3학년 · 행동발달 가산 1·2·3학년 (학업성적관리위원회 결정값, 없으면 0)', ph:'1\t김민지\t0.5\t0\t0.5\t0\t0\t0.5'}
 };
 V.jh_paste = () => {
   ui.jhPasteType = ui.jhPasteType || '3-1';
-  const opts = JH_SEMS.map(s=>`<option value="${s.k}" ${ui.jhPasteType===s.k?'selected':''}>${s.k} 학기 일반교과 성취도</option>`).join('') +
-    Object.entries(JH_PASTE).map(([k,v])=>`<option value="${k}" ${ui.jhPasteType===k?'selected':''}>${v.label}</option>`).join('');
-  const P = JH_PASTE[ui.jhPasteType];
-  const help = P ? `열 순서: <b>${P.help}</b>` : `열 순서: <b>번호 · 이름 · 일반교과 성취도(A~E)…</b> — 체육·음악·미술은 빼고 붙여넣으세요(예체능은 따로). 수·우·미·양·가도 인식해요.`;
+  const opts = `<optgroup label="일반교과 성취도">${JH_SEMS.map(s=>`<option value="${s.k}" ${ui.jhPasteType===s.k?'selected':''}>${s.k} 학기 일반교과</option>`).join('')}</optgroup>
+    <optgroup label="예체능(체육·음악·미술) 성취도">${ART_SEMS.map(k=>`<option value="art-${k}" ${ui.jhPasteType==='art-'+k?'selected':''}>${k} 학기 예체능</option>`).join('')}</optgroup>
+    <optgroup label="비교과">${Object.entries(JH_PASTE).map(([k,v])=>`<option value="${k}" ${ui.jhPasteType===k?'selected':''}>${v.label}</option>`).join('')}</optgroup>`;
+  const P = JH_PASTE[ui.jhPasteType], isArt = ui.jhPasteType.startsWith('art-');
+  const help = P ? `열 순서: <b>${P.help}</b>`
+    : isArt ? `열 순서: <b>번호 · 이름 · 체육·음악·미술 성취도(A/B/C)</b> — 해당 학기 것만. 우수·보통·미흡도 인식해요.`
+    : `열 순서: <b>번호 · 이름 · 일반교과 성취도(A~E)…</b> — 체육·음악·미술은 빼고 붙여넣으세요(예체능은 따로). 수·우·미·양·가도 인식해요.`;
   return `<div class="card">
     <h3>📋 엑셀에서 일괄 붙여넣기</h3>
     <div class="row" style="margin-bottom:8px"><select onchange="ui.jhPasteType=this.value;render()">${opts}</select></div>
-    <p class="muted" style="margin:0 0 8px;font-size:14px">${help}<br>번호가 같은 학생(없으면 이름이 같은 학생)에게 들어가요. 기존 값은 덮어써요.</p>
-    <textarea id="jh-paste" rows="12" placeholder="${P?P.ph:'1\t김민지\tA\tB\tA\tA\tB\tA'}"></textarea>
+    <p class="muted" style="margin:0 0 8px;font-size:14px">${help}<br>번호가 같은 학생(없으면 이름이 같은 학생)에게 들어가요. 기존 값은 덮어써요. 한 번 입력하면 모든 학교 기준에 함께 쓰여요.</p>
+    <textarea id="jh-paste" rows="12" placeholder="${P?P.ph:isArt?'1\t김민지\tA\tA\tB':'1\t김민지\tA\tB\tA\tA\tB\tA'}"></textarea>
     <div class="row" style="justify-content:flex-end;margin-top:8px"><button class="btn pri" onclick="App.jhDoPaste()">반영하기</button></div>
   </div>`;
 };
 
-V.jh_config = () => `<div class="card">
-  <h3>📐 산출 기준 (광주 고입 기본계획 내신성적 산출지침)</h3>
-  <h4 style="margin:6px 0">교과 240점</h4>
-  <ul style="margin:0 0 6px;padding-left:20px">
-    <li><b>일반교과 180점</b> — 1학년 2학기 18 · 2학년 1·2학기 각 36 · 3학년 1·2학기 각 45 (10 : 40 : 50)</li>
-    <li>학기 점수 = 배점 × (과목별 환산점수 합 ÷ (과목수×5)), 비율은 소수 여섯째 자리 반올림 · 합계는 넷째 자리 반올림. A5 B4 C3 D2 E1</li>
-    <li><b>예체능(체육·음악·미술) 60점</b> — 3년간 A5 B4 C3, 60 × (환산점수 합 ÷ (개수×5)), 넷째 자리 반올림</li>
-    <li>성취도평가 이전 학기: 수·우·미·양·가 → A~E, 예체능 우수·보통·미흡 → A~C</li>
-  </ul>
-  <h4 style="margin:10px 0 6px">비교과 60점 (학년별 5점 × 3)</h4>
-  <ul style="margin:0;padding-left:20px">
-    <li><b>출결 15</b> — 학년별 미인정 결석일수(미인정 지각·조퇴·결과 3회 = 1일, 질병·기타 제외): 0일 5 · 1~2일 4 · 3~4일 3 · 5~6일 2 · 7~8일 1 · 9일 이상 0</li>
-    <li><b>봉사 15</b> — 연간 7시간 이상 5 · 6시간 4.5 · 5시간 4 · 4시간 3.5 · 3시간 이하 3</li>
-    <li><b>창의적체험활동(자율·동아리·진로) 15</b> — 학년별 기본 4.5 + 가산 0~0.5</li>
-    <li><b>행동발달 15</b> — 학년별 기본 4.5 + 가산 0~0.5 (가산 대상·범위는 학교 학업성적관리위원회 결정)</li>
-  </ul>
-  <label class="row" style="margin-top:14px"><input type="checkbox" ${S.jinhak.config.estimateMissing?'checked':''} onchange="App.jhEst(this.checked)"> 아직 성적이 없는 학기는 입력된 학기 평균으로 추정해 가내신 보기</label>
-  <p class="muted" style="font-size:13px">매년 기본계획이 바뀌면 이 기준도 점검이 필요해요.</p>
-</div>`;
+V.jh_config = () => {
+  const k = S.jinhak.config.crit || 'general';
+  const body = {
+    general:`<h4 style="margin:6px 0">교과 240점</h4><ul style="margin:0 0 6px;padding-left:20px">
+      <li><b>일반교과 180</b> — 1-2 18 · 2-1 36 · 2-2 36 · 3-1 45 · 3-2 45 (10:40:50). 학기 점수 = 배점 × 환산점수 합 ÷ (과목수×5), A5~E1</li>
+      <li><b>예체능 60</b> — 3년간 A5 B4 C3, 60 × (합 ÷ 개수×5)</li></ul>
+      <h4 style="margin:10px 0 6px">비교과 60 (학년별 5점 × 3)</h4><ul style="margin:0;padding-left:20px">
+      <li><b>출결 15</b> — 학년별 미인정 결석일수(지각·조퇴·결과 3회=1일): 0일 5 · 1~2일 4 · 3~4일 3 · 5~6일 2 · 7~8일 1 · 9일↑ 0</li>
+      <li><b>봉사 15</b> — 학년별 연 7시간↑ 5 · 6시간 4.5 · 5시간 4 · 4시간 3.5 · 3시간↓ 3</li>
+      <li><b>창체 15 · 행동발달 15</b> — 학년별 기본 4.5 + 가산 0~0.5</li></ul>`,
+    meister:`<h4 style="margin:6px 0">교과 240점 (졸업예정자: 3학년 1학기까지)</h4><ul style="margin:0 0 6px;padding-left:20px">
+      <li><b>일반교과 180</b> — 1-2 18 · 2-1 45 · 2-2 45 · 3-1 72 (10:50:40). 학기 비율은 여섯째 자리, 합계는 넷째 자리 반올림, A5~E1</li>
+      <li><b>예체능 60</b> — 3년간(3-1까지) A5 B4 C3, 60 × (합 ÷ 개수×5)</li></ul>
+      <h4 style="margin:10px 0 6px">비교과 60점 (2026. 9. 30. 기준)</h4><ul style="margin:0;padding-left:20px">
+      <li><b>출석 30</b> — 전 학년 합산 미인정 결석일수(지각·조퇴·결과 3회=1일, 소수점 버림) 1일당 3점 감점, 10일 이상 0점</li>
+      <li><b>봉사 30</b> — 학년별 10점: 연 7시간↑ 10 · 6시간 8 · 5시간 6 · 4시간 4 · 3시간↓ 2</li>
+      <li>학교폭력 관련 징계 기록은 건당 3점 감점(비교과) — 이 앱에는 반영하지 않으니 해당 학생은 직접 빼 주세요.</li></ul>
+      <p class="muted" style="font-size:13px">자동화설비마이스터고와 소프트웨어마이스터고는 1차 내신 산출지침이 같아요. 2차: 자동화설비는 인·적성 소양검사 120 + 심층면접 80, 소프트웨어는 1차 성적 + 역량검사 + 심층면접 합산.</p>`,
+    arts:`<h4 style="margin:6px 0">교과 90점 (졸업예정자: 1학년 2학기 ~ 3학년 1학기)</h4><ul style="margin:0 0 6px;padding-left:20px">
+      <li><b>일반교과 80</b> — 국어·사회(역사)·도덕·수학·과학·기술가정·정보·영어 전 과목의 평정점(A5~E1) 평균을 셋째 자리까지 구한 뒤 급간표로 환산:
+        4.951↑ 80 · 4.901 79 · 4.801 78 · 4.701 77 · 4.601 76 · 4.501 74 · 4.401 72 · 4.301 70 · 4.201 68 · 4.101 66 · 4.001 64 · 3.751 62 · 3.501 60 · 3.251 58 · 3.001 56 · 2.751 54 · 2.501 52 · 2.251 50 · 2.001 47 · 그 이하 44</li>
+      <li><b>예체능 10</b> — 체육·음악·미술 A10 B9 C8의 평균</li></ul>
+      <h4 style="margin:10px 0 6px">비교과 10점 (2026. 9. 30. 기준)</h4><ul style="margin:0;padding-left:20px">
+      <li><b>출결 5</b> — 전 학년 미인정 결석일수(지각·조퇴·결과 3회=1일) 1일당 0.5점 감점, 10일 이상 0점</li>
+      <li><b>봉사 5</b> — 1학년부터 총 18시간↑ 5 · 17시간 4.5 · 16시간 4 · 15시간 3.5 · 14시간 3 · 13시간↓ 2.5</li></ul>
+      <h4 style="margin:10px 0 6px">실기와 합산 (내신 100 + 실기 100)</h4>
+      <p style="margin:0">내신 반영: 음악과 40% · 국악과·무용과 50% · 한국화과 60% · 미술과 회화·조소·디자인 60%, 만화 40%. 실기 70점 미만이거나 환산 총점 60점 미만이면 불합격.</p>`
+  }[k === 'auto' || k === 'sw' ? 'meister' : k];
+  return `<div class="card">
+    <h3>📐 ${crit().name} 산출 기준</h3>
+    ${body}
+    <label class="row" style="margin-top:14px"><input type="checkbox" ${S.jinhak.config.estimateMissing?'checked':''} onchange="App.jhEst(this.checked)"> 아직 성적이 없는 학기는 입력된 학기 평균으로 추정해 가내신 보기</label>
+    <p class="muted" style="font-size:13px">근거: 2027학년도 광주광역시 고등학교 입학전형 기본계획 및 각 학교 입학전형요강. 광주과학고는 내신을 점수로 환산하지 않는 정성평가(영재성 평가)라 계산기에 넣지 않았어요. 매년 요강이 바뀌면 점검이 필요해요.</p>
+  </div>`;
+};
 
 Object.assign(App, {
   jhSub(k){ ui.jhSub = k; render(); },
   jhSort(v){ ui.jhSort = v; render(); },
   jhEst(v){ S.jinhak.config.estimateMissing = v; save(); render(); },
+  jhCrit(k){ S.jinhak.config.crit = k; save(); render(); },
+  jhCompare(){
+    const rows = sortedStudents().map(s => `<tr><td>${esc(s.no)}</td><td>${esc(s.name)}</td>${Object.values(CRITS).map(c => { const r = jhCalc(s.id, c); return `<td>${r.has?r3(r.total):'·'}</td>`; }).join('')}</tr>`).join('');
+    modal(`<h3>학교별 내신 비교</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>번호</th><th>이름</th>${Object.values(CRITS).map(c=>`<th>${c.short}<br><small>${c.max}</small></th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn pri" onclick="closeModal()">닫기</button></div>`);
+    $('.modal').style.maxWidth = '760px';
+  },
   jhEdit(sid){
     const s = stu(sid), d = jhD(sid), y = today().slice(0,4);
     let a = 0, l = 0;
     Object.keys(S.attendance).filter(k=>k.startsWith(y)).forEach(k=>{ const r = S.attendance[k][sid]; if(r && r.reason==='미인정'){ if(r.type==='결석') a++; else l++; } });
     const inp = (id, v, w, ph='') => `<input type="text" inputmode="decimal" id="${id}" value="${esc(v??'')}" placeholder="${ph}" style="width:${w}px">`;
     modal(`<h3>🎓 ${esc(s.no)}. ${esc(s.name)} 고입 성적</h3>
-      <p class="muted" style="margin:0 0 6px;font-size:13px">일반교과 성취도를 학기별로 순서대로 입력하세요 (예: <b>AABAC</b>). 체육·음악·미술은 아래 예체능 칸에 따로 넣어요.</p>
-      ${JH_SEMS.map(sm=>`<div class="field"><label>${sm.k} 학기 일반교과 (${sm.p}점)</label><input type="text" id="jh-g-${sm.k}" value="${esc(d.grades[sm.k]||'')}" placeholder="예) A A B A C B A" style="letter-spacing:2px"></div>`).join('')}
-      <div class="field"><label>예체능 3년 전체 성취도 (60점, A/B/C)</label><input type="text" id="jh-art" value="${esc(d.art||'')}" placeholder="예) A A B A A A …" style="letter-spacing:2px"></div>
+      <p class="muted" style="margin:0 0 6px;font-size:13px">학기별로 성취도를 순서대로 입력하세요 (예: <b>AABAC</b>). 일반교과와 예체능(체육·음악·미술)은 나눠서 넣어요. 한 번 입력하면 모든 학교 기준에 쓰여요.</p>
+      <div class="tbl-wrap"><table style="margin-bottom:6px"><thead><tr><th>학기</th><th>일반교과 (A~E)</th><th>예체능 (A~C)</th></tr></thead><tbody>
+      ${ART_SEMS.map(k=>`<tr><td><b>${k}</b></td>
+        <td>${k==='1-1'?'<span class="muted" style="font-size:12px">반영 안 함</span>':`<input type="text" id="jh-g-${k}" value="${esc(d.grades[k]||'')}" placeholder="A A B A C" style="letter-spacing:2px;width:100%">`}</td>
+        <td><input type="text" id="jh-r-${k}" value="${esc(d.artS[k]||'')}" placeholder="A A B" style="letter-spacing:2px;width:100%"></td></tr>`).join('')}
+      </tbody></table></div>
+      ${d.art ? `<div class="field"><label>예체능 (예전에 학기 구분 없이 입력한 값 — 학기별로 옮기면 더 정확해요)</label><input type="text" id="jh-art" value="${esc(d.art)}" style="letter-spacing:2px"></div>` : ''}
       <div class="tbl-wrap"><table style="margin:6px 0">
         <thead><tr><th></th><th>미인정 결석</th><th>미인정 지각·조퇴·결과</th><th>봉사 시간</th><th>창체 가산</th><th>행동 가산</th></tr></thead>
         <tbody>${YRS.map(yy=>`<tr><td><b>${yy}학년</b></td>
           <td>${inp('jh-a-'+yy,(d.att[yy]||{}).abs,70,'0')}</td><td>${inp('jh-l-'+yy,(d.att[yy]||{}).late,70,'0')}</td>
           <td>${inp('jh-v-'+yy,d.vol[yy],70,'0')}</td><td>${inp('jh-c-'+yy,d.act[yy],60,'0')}</td><td>${inp('jh-b-'+yy,d.beh[yy],60,'0')}</td></tr>`).join('')}</tbody></table></div>
-      <p class="muted" style="font-size:12px;margin:0 0 8px">가산은 0~0.5 (학업성적관리위원회 결정). 참고: 이 앱의 ${y}년 출결 기록 — 미인정 결석 ${a}일, 미인정 지각·조퇴·결과 ${l}회</p>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">창체·행동 가산(0~0.5)은 일반고에만 쓰여요. 참고: 이 앱의 ${y}년 출결 기록 — 미인정 결석 ${a}일, 미인정 지각·조퇴·결과 ${l}회</p>
       <div id="jh-res" class="notice" style="margin:6px 0 10px"></div>
       <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal();render()">닫기</button><button class="btn pri" onclick="App.jhSave('${sid}',true)">저장</button></div>`);
+    $('.modal').style.maxWidth = '640px';
     $('#modal').querySelectorAll('input').forEach(i => i.addEventListener('input', () => App.jhSave(sid,false)));
     App.jhShow(sid);
   },
   jhSave(sid, close){
-    const d = jhD(sid), v = id => $('#'+id).value.trim();
+    const d = jhD(sid), v = id => { const el = $('#'+id); return el ? el.value.trim() : ''; };
     JH_SEMS.forEach(sm => { const x = v('jh-g-'+sm.k); if(x) d.grades[sm.k] = x; else delete d.grades[sm.k]; });
-    d.art = v('jh-art');
+    ART_SEMS.forEach(k => { const x = v('jh-r-'+k); if(x) d.artS[k] = x; else delete d.artS[k]; });
+    if($('#jh-art')) d.art = v('jh-art');
     YRS.forEach(y => {
       d.att[y] = {abs:+v('jh-a-'+y)||0, late:+v('jh-l-'+y)||0};
       const vh = v('jh-v-'+y); if(vh==='') delete d.vol[y]; else d.vol[y] = +vh||0;
@@ -1155,12 +1247,8 @@ Object.assign(App, {
     if(close){ closeModal(); render(); toast('저장됨'); } else App.jhShow(sid);
   },
   jhShow(sid){
-    const r = jhCalc(sid);
-    $('#jh-res').innerHTML = r.has
-      ? `일반 <b>${r3(r.gen)}</b> + 예체능 <b>${r.art==null?'미입력':r3(r.art)}</b> + 출결 <b>${r.att}</b> + 봉사 <b>${r.vol}</b> + 창체 <b>${r.act}</b> + 행동 <b>${r.beh}</b> = <b style="color:var(--accent);font-size:17px">${r3(r.total)}</b> / 300
-         ${r.estimated.length?`<br><span class="muted" style="font-size:12px">${r.estimated.join(', ')} 학기는 입력된 학기 평균으로 추정했어요.</span>`:''}
-         ${r.artMissing?`<br><span class="muted" style="font-size:12px">예체능을 입력하지 않아 0점으로 계산 중이에요.</span>`:''}`
-      : '일반교과 성취도를 한 학기 이상 입력하면 점수가 계산돼요.';
+    const lines = Object.entries(CRITS).map(([k,c]) => { const r = jhCalc(sid, c); return `<div style="${k===(S.jinhak.config.crit||'general')?'font-weight:700':''}">${c.short}: <b style="color:var(--accent)">${r.has?r3(r.total):'—'}</b> / ${c.max}${r.has&&r.artMissing?' <span class="muted" style="font-size:12px">(예체능 미입력)</span>':''}${r.est.length?` <span class="muted" style="font-size:12px">(${r.est.join(', ')} 추정)</span>`:''}</div>`; }).join('');
+    $('#jh-res').innerHTML = lines;
   },
   jhDoPaste(){
     const type = ui.jhPasteType || '3-1', lines = $('#jh-paste').value.split(/\r?\n/).filter(l=>l.trim());
@@ -1177,7 +1265,7 @@ Object.assign(App, {
       if(!st){ miss.push(l.slice(0,14)); continue; }
       const d = jhD(st.id);
       const n = i => (cols[i] === undefined || cols[i] === '') ? undefined : (+cols[i] || 0);
-      if(type === 'art') d.art = letters(cols.join(' '), true).join('');
+      if(type.startsWith('art-')){ const g = letters(cols.join(' '), true); if(g.length) d.artS[type.slice(4)] = g.join(''); else delete d.artS[type.slice(4)]; }
       else if(type === 'att') YRS.forEach((y,i) => { const A = n(i*2), L = n(i*2+1); if(A!==undefined || L!==undefined) d.att[y] = {abs:A||0, late:L||0}; });
       else if(type === 'vol') YRS.forEach((y,i) => { if(n(i)!==undefined) d.vol[y] = n(i); });
       else if(type === 'bonus') YRS.forEach((y,i) => { if(n(i)!==undefined) d.act[y] = n(i); if(n(i+3)!==undefined) d.beh[y] = n(i+3); });
@@ -1189,10 +1277,10 @@ Object.assign(App, {
     ui.jhSub = 'list'; render();
   },
   jhCsv(){
-    const {rows} = jhRanked();
-    const out = [['번호','이름',...JH_SEMS.map(s=>s.k+'학기('+s.p+')'),'일반교과(180)','예체능(60)','교과(240)','출결(15)','봉사(15)','창체(15)','행동발달(15)','총점(300)','반 석차']];
-    rows.forEach(({s,r,rank}) => out.push([s.no, s.name, ...JH_SEMS.map(sm=>r.per[sm.k]==null?'':r3(r.per[sm.k])), r3(r.gen), r.art==null?'':r3(r.art), r3(r.subj), r.att, r.vol, r.act, r.beh, r.has?r3(r.total):'', rank||'']));
-    csv(out, `고입내신_${today()}.csv`);
+    const c = crit(), {rows} = jhRanked(c), strip = h => h.replace(/<br>/g,' ').replace(/<[^>]+>/g,'');
+    const out = [['번호','이름',...c.cols.map(col=>strip(col.h)),`총점(${c.max})`,'반 석차']];
+    rows.forEach(({s,r,rank}) => out.push([s.no, s.name, ...c.cols.map(col => r.v[col.k]==null?'':fmtV(r.v[col.k])), r.has?r3(r.total):'', rank||'']));
+    csv(out, `고입내신_${c.short}_${today()}.csv`);
   }
 });
 
